@@ -147,3 +147,92 @@ class ReportGenerator:
         
         Args:
             results: Backtest results dictionary
+        """
+        if 'equity_curve' not in results or not results['equity_curve']:
+            return
+        
+        equity = results['equity_curve']
+        
+        plt.figure(figsize=(12, 6))
+        plt.plot(equity)
+        plt.title('Equity Curve')
+        plt.xlabel('Trade Number')
+        plt.ylabel('Equity')
+        plt.grid(True, alpha=0.3)
+        
+        # Save plot
+        plt.savefig(os.path.join(self.output_dir, 'equity_curve.png'))
+        plt.close()
+        logger.info(f"Equity curve plot saved")
+    
+    def _plot_drawdown(self, results: Dict[str, Any]):
+        """
+        Plot drawdown curve.
+        
+        Args:
+            results: Backtest results dictionary
+        """
+        if 'equity_curve' not in results or not results['equity_curve']:
+            return
+        
+        equity = np.array(results['equity_curve'])
+        peak = np.maximum.accumulate(equity)
+        drawdown = (peak - equity) / peak * 100
+        
+        plt.figure(figsize=(12, 6))
+        plt.fill_between(range(len(drawdown)), drawdown, 0, alpha=0.3, color='red')
+        plt.plot(drawdown, color='darkred')
+        plt.title('Drawdown')
+        plt.xlabel('Trade Number')
+        plt.ylabel('Drawdown (%)')
+        plt.grid(True, alpha=0.3)
+        
+        # Save plot
+        plt.savefig(os.path.join(self.output_dir, 'drawdown.png'))
+        plt.close()
+        logger.info(f"Drawdown plot saved")
+    
+    def _plot_pnl_distribution(self, results: Dict[str, Any]):
+        """
+        Plot P&L distribution.
+        
+        Args:
+            results: Backtest results dictionary
+        """
+        if 'trades' not in results or results['trades'].empty:
+            return
+        
+        trades = results['trades']
+        
+        plt.figure(figsize=(10, 6))
+        sns.histplot(trades['pnl'], bins=30, kde=True)
+        plt.title('PnL Distribution')
+        plt.xlabel('PnL')
+        plt.ylabel('Frequency')
+        plt.grid(True, alpha=0.3)
+        
+        # Add vertical line at 0
+        plt.axvline(x=0, color='red', linestyle='--', alpha=0.5)
+        
+        # Save plot
+        plt.savefig(os.path.join(self.output_dir, 'pnl_distribution.png'))
+        plt.close()
+        logger.info(f"PnL distribution plot saved")
+    
+    def generate_comprehensive_report(self, results: Dict[str, Any]):
+        """
+        Generate all reports and visualizations.
+        
+        Args:
+            results: Backtest results dictionary
+        """
+        logger.info("Generating comprehensive report...")
+        
+        # Generate Excel and CSV reports
+        self.generate_excel_report(results)
+        self.generate_csv_reports(results)
+        
+        # Generate visualizations
+        self.generate_visualizations(results)
+        
+        logger.info(f"All reports generated in {self.output_dir}")
