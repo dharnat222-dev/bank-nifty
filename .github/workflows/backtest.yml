@@ -3,45 +3,127 @@ name: Bank Nifty Option Backtest
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
   schedule:
-    - cron: '0 2 * * 1'  # Run every Monday at 2 AM UTC
-  workflow_dispatch:  # Allow manual trigger
+    - cron: '0 2 * * 1'  # દર સોમવારે સવારે 2 વાગ્યે UTC
+  workflow_dispatch:  # મેન્યુઅલ ટ્રિગર
 
 jobs:
   backtest:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
+        cache: 'pip'
     
-    - name: Install dependencies
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential \
+          python3-dev
+    
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pandas numpy yfinance matplotlib seaborn openpyxl
+        pip install pandas numpy yfinance matplotlib seaborn openpyxl plotly
+    
+    - name: Create necessary directories
+      run: |
+        mkdir -p data
+        mkdir -p reports
     
     - name: Run backtest
       run: |
         python backtest.py
+      continue-on-error: false
     
-    - name: Upload reports
-      uses: actions/upload-artifact@v3
+    - name: List generated reports
+      run: |
+        echo "=== Generated Reports ==="
+        ls -la reports/ || echo "No reports directory found"
+        echo "=== Log files ==="
+        ls -la *.log || echo "No log files found"
+    
+    - name: Upload Excel reports
+      uses: actions/upload-artifact@v4
       with:
-        name: backtest-reports
+        name: excel-reports
+        path: |
+          reports/*.xlsx
+          reports/*.xls
+        retention-days: 30
+        if-no-files-found: warn
+    
+    - name: Upload CSV reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: csv-reports
+        path: |
+          reports/*.csv
+        retention-days: 30
+        if-no-files-found: warn
+    
+    - name: Upload visualization images
+      uses: actions/upload-artifact@v4
+      with:
+        name: visualizations
+        path: |
+          reports/*.png
+          reports/*.jpg
+          reports/*.jpeg
+        retention-days: 30
+        if-no-files-found: warn
+    
+    - name: Upload full backtest results
+      uses: actions/upload-artifact@v4
+      with:
+        name: full-backtest-results
         path: reports/
         retention-days: 30
+        if-no-files-found: warn
     
     - name: Upload logs
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: backtest-logs
-        path: backtest.log
+        path: |
+          *.log
+          *.txt
         retention-days: 7
+        if-no-files-found: warn
+    
+    - name: Upload data cache (optional)
+      uses: actions/upload-artifact@v4
+      with:
+        name: data-cache
+        path: data/
+        retention-days: 7
+        if-no-files-found: ignore
+    
+    - name: Summary of backtest
+      if: always()
+      run: |
+        echo "## 🏦 Bank Nifty Option Backtest Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Reports Generated" >> $GITHUB_STEP_SUMMARY
+        echo "- Excel Reports: Check artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- CSV Reports: Check artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- Visualizations: Check artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📈 Key Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "Download the reports from artifacts for detailed analysis." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ⏰ Execution Time" >> $GITHUB_STEP_SUMMARY
+        echo "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
