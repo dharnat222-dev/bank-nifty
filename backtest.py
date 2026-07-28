@@ -1,4 +1,3 @@
-# backtest.py
 """
 Backtest module for Bank Nifty ATM Option Backtest Engine.
 Orchestrates the entire backtesting process.
@@ -50,12 +49,32 @@ class BacktestEngine:
         # Load data
         spot_data, option_data = self.data_loader.load_data(start_date, end_date)
         
+        # Log the columns to debug
+        logger.info(f"Spot data columns: {spot_data.columns.tolist()}")
+        logger.info(f"Option data columns: {option_data.columns.tolist()}")
+        
         # Merge data
         df = pd.merge(spot_data, option_data, on='date', how='left')
+        
+        # Log merged data info
+        logger.info(f"Merged data shape: {df.shape}")
+        logger.info(f"Merged data columns: {df.columns.tolist()}")
+        
+        # Check if we have the required columns
+        required_columns = ['open', 'high', 'low', 'close', 'volume']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            logger.error(f"Missing columns: {missing_columns}")
+            logger.error(f"Available columns: {df.columns.tolist()}")
+            raise ValueError(f"Missing required columns: {missing_columns}")
         
         # Calculate indicators
         indicator_params = Config.get_indicator_params()
         df = calculate_all_indicators(df, indicator_params)
+        
+        # Log after indicator calculation
+        logger.info(f"After indicators shape: {df.shape}")
+        logger.info(f"After indicators columns: {df.columns.tolist()}")
         
         # Initialize components
         option_selector = OptionSelector(spot_data, option_data)
@@ -89,8 +108,17 @@ class BacktestEngine:
         position = None
         current_equity = 0
         
+        # Ensure we have enough data
+        if len(df) < 50:
+            logger.warning("Not enough data for backtest")
+            return trades, equity
+        
         for i in range(50, len(df)):  # Start from 50 to ensure all indicators are calculated
             row = df.iloc[i]
+            
+            # Check if we have valid data
+            if pd.isna(row['vwap']) or pd.isna(row['rsi']):
+                continue
             
             # Check for entry if not in position
             if position is None:
@@ -188,7 +216,13 @@ class BacktestEngine:
                 'win_rate': 0,
                 'profit_factor': 0,
                 'total_pnl': 0,
-                'trades': []
+                'avg_win': 0,
+                'avg_loss': 0,
+                'max_consecutive_wins': 0,
+                'max_consecutive_losses': 0,
+                'expectancy': 0,
+                'trades': pd.DataFrame(),
+                'equity_curve': equity
             }
         
         df_trades = pd.DataFrame(trades)
@@ -244,10 +278,34 @@ class BacktestEngine:
 
 if __name__ == "__main__":
     # Run backtest
-    engine = BacktestEngine()
-    results = engine.run(Config.START_DATE, Config.END_DATE)
-    
-    print(f"Total Trades: {results['total_trades']}")
-    print(f"Win Rate: {results['win_rate']:.2f}%")
-    print(f"Profit Factor: {results['profit_factor']:.2f}")
-    print(f"Total PnL: {results['total_pnl']:.2f}")
+    try:
+        engine = BacktestEngine()
+        results = engine.run(Config.START_DATE, Config.END_DATE)
+        
+        print("\n" + "="*50)
+        print("BACKTEST RESULTS")
+        print("="*50)
+        print(f"Total Trades: {results['total_trades']}")
+        print(f"Win Rate: {results['win_rate']:.2f}%")
+        print(f"Profit Factor: {results['profit_factor']:.2f}")
+        print(f"Total PnL: {results['total_pnl']:.2f}")
+        print(f"Average Win: {results['avg_win']:.2f}")
+        print(f"Average Loss: {results['avg_loss']:.2f}")
+        print(f"Max Consecutive Wins: {results['max_consecutive_wins']}")
+        print(f"Max Consecutive Losses: {results['max_consecutive_losses']}")
+        print(f"Expectancy: {results['expectancy']:.2f}")
+        print("="*50)
+        
+        # Generate reports
+        from report import ReportGenerator
+        report_gen = ReportGenerator()
+        report_gen.generate_comprehensive_report(results)
+        
+        print("\n✅ Backtest completed successfully!")
+        print(f"📁 Reports saved in 'reports' directory")
+        
+    except Exception as e:
+        logger.error(f"Backtest failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
