@@ -1,4 +1,3 @@
-# data_loader.py
 """
 Data loading module for Bank Nifty ATM Option Backtest Engine.
 Handles downloading and loading of historical data.
@@ -50,10 +49,11 @@ class DataLoader:
             # Reset index to have Date as column
             df = df.reset_index()
             
-            # Rename columns to match expected format
-            df.columns = [col.lower() for col in df.columns]
+            # Fix: Convert column names to string and then lower
+            df.columns = [str(col).lower() for col in df.columns]
             
             logger.info(f"Downloaded {len(df)} rows of Bank Nifty data")
+            logger.info(f"Columns: {df.columns.tolist()}")
             return df
             
         except Exception as e:
@@ -105,7 +105,7 @@ class DataLoader:
         Returns:
             Tuple of (spot_data, option_data)
         """
-        # Check if data exists locally
+        # Create cache filename with safe characters
         cache_file = os.path.join(self.data_dir, f"banknifty_{start_date}_{end_date}.parquet")
         
         if os.path.exists(cache_file):
@@ -124,9 +124,16 @@ class DataLoader:
             # In production, you would load actual option data here
             option_data = self.generate_synthetic_option_data(spot_data)
         
+        # Ensure date column exists for merging
+        if 'date' not in spot_data.columns:
+            spot_data['date'] = spot_data.index
+        
         # Cache the combined data
-        combined = pd.concat([spot_data, option_data[['atm_strike', 'ce_price', 'pe_price', 'ce_volume', 'pe_volume']]], axis=1)
-        combined.to_parquet(cache_file)
-        logger.info(f"Cached data to {cache_file}")
+        try:
+            combined = pd.concat([spot_data, option_data[['atm_strike', 'ce_price', 'pe_price', 'ce_volume', 'pe_volume']]], axis=1)
+            combined.to_parquet(cache_file)
+            logger.info(f"Cached data to {cache_file}")
+        except Exception as e:
+            logger.warning(f"Could not cache data: {e}")
         
         return spot_data, option_data
