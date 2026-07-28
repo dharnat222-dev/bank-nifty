@@ -1,5 +1,6 @@
 """
-Backtest engine module.
+Backtest engine module for Bank Nifty ATM Option Backtest Engine.
+Orchestrates the entire backtesting process with proper data handling.
 """
 
 import pandas as pd
@@ -16,104 +17,130 @@ from config import Config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class BacktestEngine:
-    """Main backtest engine class."""
+    """Main backtest engine class that orchestrates the entire backtesting process."""
     
     def __init__(self, config: Dict[str, Any] = None):
+        """
+        Initialize BacktestEngine.
+        
+        Args:
+            config: Configuration dictionary
+        """
         self.config = config or {}
         self.data_loader = DataLoader()
         self.trades = []
         self.equity_curve = []
     
     def run(self, start_date: str, end_date: str) -> Dict[str, Any]:
-        """Run the backtest."""
+        """
+        Run the backtest for given date range.
+        
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+        
+        Returns:
+            Dictionary with backtest results
+        """
         logger.info(f"Starting backtest from {start_date} to {end_date}")
         
         # Load data
         spot_data, option_data = self.data_loader.load_data(start_date, end_date)
         
-        # --- DEBUGGING: Print columns before validation ---
-        logger.info(f"Spot data shape: {spot_data.shape}")
-        logger.info(f"Spot data columns (raw): {spot_data.columns.tolist()}")
-        logger.info(f"Option data columns: {option_data.columns.tolist()}")
-        
-        # --- FIX: Strip whitespace and convert to lowercase ---
+        # Clean column names
         spot_data.columns = spot_data.columns.str.strip().str.lower()
         option_data.columns = option_data.columns.str.strip().str.lower()
         
-        # --- DEBUGGING: Print columns after cleaning ---
-        logger.info(f"Spot data columns (cleaned): {spot_data.columns.tolist()}")
-        logger.info(f"Option data columns (cleaned): {option_data.columns.tolist()}")
+        logger.info(f"Spot data columns: {spot_data.columns.tolist()}")
+        logger.info(f"Option data columns: {option_data.columns.tolist()}")
         
-        # --- FIX: Validate required columns ---
+        # Validate required columns in spot_data
         required_columns = ["date", "open", "high", "low", "close", "volume"]
-        
-        # Check spot_data columns
-        spot_cols = spot_data.columns.tolist()
-        logger.info(f"Spot columns available: {spot_cols}")
-        
         for col in required_columns:
-            if col not in spot_cols:
-                logger.error(f"Missing column '{col}' in spot_data")
-                logger.error(f"Available columns: {spot_cols}")
-                raise ValueError(f"Missing required column: {col}")
+            if col not in spot_data.columns:
+                raise ValueError(f"Missing required column in spot_data: {col}")
         
-        # Ensure date column exists for merging
+        # Filter option_data to only keep necessary columns
+        option_columns = [
+            "date",
+            "atm_strike",
+            "ce_price",
+            "pe_price",
+            "ce_volume",
+            "pe_volume",
+            "ce_delta",
+            "pe_delta"
+        ]
+        
+        # Keep only columns that exist
+        available_option_cols = [col for col in option_columns if col in option_data.columns]
+        
+        if not available_option_cols:
+            logger.warning("No option columns found, creating default columns")
+            for col in option_columns:
+                if col != "date":
+                    option_data[col] = 0
+        
+        # Filter option_data to keep only needed columns
+        if available_option_cols:
+            option_data = option_data[available_option_cols]
+        
+        logger.info(f"Filtered option data columns: {option_data.columns.tolist()}")
+        
+        # Ensure date columns exist
         if 'date' not in spot_data.columns:
             spot_data['date'] = spot_data.index
         
-        # --- FIX: Merge data safely ---
+        if 'date' not in option_data.columns:
+            option_data['date'] = option_data.index
+        
+        # Merge data - now with no duplicate OHLCV columns
         df = pd.merge(spot_data, option_data, on='date', how='left')
         
-        # --- DEBUGGING: Print merged columns ---
+        # Clean merged columns
+        df.columns = df.columns.str.strip().str.lower()
+        
         logger.info(f"Merged data shape: {df.shape}")
         logger.info(f"Merged data columns: {df.columns.tolist()}")
         
-        # --- FIX: Clean merged columns ---
-        df.columns = df.columns.str.strip().str.lower()
-        
-        # --- FIX: Check merged columns ---
+        # Validate merged columns
         for col in required_columns:
             if col not in df.columns:
-                logger.error(f"Missing column '{col}' after merge")
-                logger.error(f"Available merged columns: {df.columns.tolist()}")
-                raise ValueError(f"Missing required column: {col}")
+                raise ValueError(f"Missing required column after merge: {col}")
         
-        # --- FIX: Convert to numeric ---
+        # Convert to numeric
         for col in required_columns:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-                logger.info(f"Converted {col} to numeric. NaN count: {df[col].isna().sum()}")
+            df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # --- FIX: Drop NaN values ---
+        # Drop rows with NaN in required columns
         initial_len = len(df)
         df = df.dropna(subset=required_columns)
         logger.info(f"Dropped {initial_len - len(df)} rows with NaN values")
         logger.info(f"Remaining rows: {len(df)}")
         
-        # --- FIX: Ensure we have enough data ---
+        # Check if we have enough data
         if len(df) < 50:
-            logger.warning("Not enough data after cleaning. Need at least 50 rows.")
-            logger.warning("Returning empty results.")
+            logger.warning("Not enough data after cleaning")
             return {
                 'total_trades': 0,
-                'win_rate': 0,
-                'profit_factor': 0,
-                'total_pnl': 0,
-                'avg_win': 0,
-                'avg_loss': 0,
+                'win_rate': 0.0,
+                'profit_factor': 0.0,
+                'total_pnl': 0.0,
+                'avg_win': 0.0,
+                'avg_loss': 0.0,
                 'max_consecutive_wins': 0,
                 'max_consecutive_losses': 0,
-                'expectancy': 0,
+                'expectancy': 0.0,
                 'trades': pd.DataFrame(),
-                'equity_curve': [0]
+                'equity_curve': [0.0]
             }
         
         # Calculate indicators
         indicator_params = Config.get_indicator_params()
         df = calculate_all_indicators(df, indicator_params)
         
-        # --- DEBUGGING: Check after indicators ---
         logger.info(f"After indicators shape: {df.shape}")
         logger.info(f"After indicators columns: {df.columns.tolist()}")
         
@@ -133,21 +160,30 @@ class BacktestEngine:
     
     def _run_backtest(self, df: pd.DataFrame, option_selector: OptionSelector, 
                      strategy: Strategy) -> Tuple[List[Dict], List[float]]:
-        """Execute the backtest logic."""
+        """
+        Execute the backtest logic.
+        
+        Args:
+            df: DataFrame with all data
+            option_selector: OptionSelector instance
+            strategy: Strategy instance
+        
+        Returns:
+            Tuple of (trades_list, equity_curve)
+        """
         trades = []
-        equity = [0]
+        equity = [0.0]
         position = None
-        current_equity = 0
+        current_equity = 0.0
         
         if len(df) < 50:
             return trades, equity
         
-        # --- FIX: Start from index 50 to ensure all indicators are calculated ---
         for i in range(50, len(df)):
             row = df.iloc[i]
             
-            # Check if we have valid data
-            if pd.isna(row['vwap']) or pd.isna(row['rsi']):
+            # Skip if indicators are not calculated
+            if pd.isna(row.get('vwap', np.nan)) or pd.isna(row.get('rsi', np.nan)):
                 continue
             
             # Check for entry if not in position
@@ -158,13 +194,9 @@ class BacktestEngine:
                     spot_price = row['close']
                     option_type = 'CE' if signal['direction'] == 'CALL' else 'PE'
                     
-                    try:
-                        strike, option_price, contract_info = option_selector.select_option(
-                            spot_price, option_type, row
-                        )
-                    except Exception as e:
-                        logger.warning(f"Error selecting option: {e}")
-                        continue
+                    strike, option_price, contract_info = option_selector.select_option(
+                        spot_price, option_type, row
+                    )
                     
                     position = {
                         'entry_time': row['date'] if 'date' in row else i,
@@ -179,17 +211,13 @@ class BacktestEngine:
                     }
             
             # Check for exit if in position
-            else:
+            elif position is not None:
                 current_strike = position['strike']
                 option_type = 'CE' if position['direction'] == 'CALL' else 'PE'
                 
-                try:
-                    current_price = option_selector.get_option_price(
-                        current_strike, option_type, row
-                    )
-                except Exception as e:
-                    logger.warning(f"Error getting option price: {e}")
-                    continue
+                current_price = option_selector.get_option_price(
+                    current_strike, option_type, row
+                )
                 
                 should_exit, exit_reason = strategy.check_exit(row, position)
                 
@@ -221,18 +249,27 @@ class BacktestEngine:
         return trades, equity
     
     def _calculate_metrics(self, trades: List[Dict], equity: List[float]) -> Dict[str, Any]:
-        """Calculate performance metrics."""
+        """
+        Calculate performance metrics from trades.
+        
+        Args:
+            trades: List of trade dictionaries
+            equity: List of equity values
+        
+        Returns:
+            Dictionary with performance metrics
+        """
         if not trades:
             return {
                 'total_trades': 0,
-                'win_rate': 0,
-                'profit_factor': 0,
-                'total_pnl': 0,
-                'avg_win': 0,
-                'avg_loss': 0,
+                'win_rate': 0.0,
+                'profit_factor': 0.0,
+                'total_pnl': 0.0,
+                'avg_win': 0.0,
+                'avg_loss': 0.0,
                 'max_consecutive_wins': 0,
                 'max_consecutive_losses': 0,
-                'expectancy': 0,
+                'expectancy': 0.0,
                 'trades': pd.DataFrame(),
                 'equity_curve': equity
             }
@@ -242,14 +279,16 @@ class BacktestEngine:
         winning = df_trades[df_trades['pnl'] > 0]
         losing = df_trades[df_trades['pnl'] < 0]
         
-        total = len(df_trades)
-        win_rate = len(winning) / total * 100 if total > 0 else 0
+        total_trades = len(df_trades)
+        win_rate = len(winning) / total_trades * 100 if total_trades > 0 else 0.0
         
-        gross_profit = winning['pnl'].sum() if not winning.empty else 0
-        gross_loss = abs(losing['pnl'].sum()) if not losing.empty else 0
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
+        gross_profit = winning['pnl'].sum() if not winning.empty else 0.0
+        gross_loss = abs(losing['pnl'].sum()) if not losing.empty else 0.0
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
         
-        # Calculate max consecutive wins/losses
+        avg_win = winning['pnl'].mean() if not winning.empty else 0.0
+        avg_loss = losing['pnl'].mean() if not losing.empty else 0.0
+        
         max_consecutive_wins = 0
         max_consecutive_losses = 0
         current_wins = 0
@@ -265,19 +304,22 @@ class BacktestEngine:
                 current_wins = 0
                 max_consecutive_losses = max(max_consecutive_losses, current_losses)
         
+        expectancy = df_trades['pnl'].mean() if total_trades > 0 else 0.0
+        
         return {
-            'total_trades': total,
+            'total_trades': total_trades,
             'win_rate': win_rate,
             'profit_factor': profit_factor,
             'total_pnl': df_trades['pnl'].sum(),
-            'avg_win': winning['pnl'].mean() if not winning.empty else 0,
-            'avg_loss': losing['pnl'].mean() if not losing.empty else 0,
+            'avg_win': avg_win,
+            'avg_loss': avg_loss,
             'max_consecutive_wins': max_consecutive_wins,
             'max_consecutive_losses': max_consecutive_losses,
-            'expectancy': df_trades['pnl'].mean() if total > 0 else 0,
+            'expectancy': expectancy,
             'trades': df_trades,
             'equity_curve': equity
         }
+
 
 if __name__ == "__main__":
     try:
@@ -298,13 +340,12 @@ if __name__ == "__main__":
         print(f"Expectancy: {results['expectancy']:.2f}")
         print("="*50)
         
-        # Generate reports
         from report import ReportGenerator
         report_gen = ReportGenerator()
         report_gen.generate_comprehensive_report(results)
         
         print("\n✅ Backtest completed successfully!")
-        print(f"📁 Reports saved in 'reports' directory")
+        print("📁 Reports saved in 'reports' directory")
         
     except Exception as e:
         logger.error(f"Backtest failed: {e}")
