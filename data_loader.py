@@ -49,8 +49,40 @@ class DataLoader:
             # Reset index to have Date as column
             df = df.reset_index()
             
-            # Fix: Convert column names to string and then lower
-            df.columns = [str(col).lower() for col in df.columns]
+            # Flatten MultiIndex columns if they exist
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = ['_'.join(col).strip() for col in df.columns.values]
+            
+            # Convert column names to lowercase
+            df.columns = [str(col).lower().replace('^nsebank', '').strip('_') for col in df.columns]
+            
+            # Rename columns to standard format
+            column_mapping = {
+                'date': 'date',
+                'open': 'open',
+                'high': 'high',
+                'low': 'low',
+                'close': 'close',
+                'volume': 'volume'
+            }
+            
+            # Find correct column names
+            for col in df.columns:
+                for key, value in column_mapping.items():
+                    if key in col.lower():
+                        df.rename(columns={col: value}, inplace=True)
+                        break
+            
+            # Ensure we have the required columns
+            required_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
+            for col in required_cols:
+                if col not in df.columns:
+                    logger.warning(f"Column {col} not found in downloaded data")
+                    # Try to find alternative column names
+                    for alt_col in df.columns:
+                        if col in alt_col.lower():
+                            df.rename(columns={alt_col: col}, inplace=True)
+                            break
             
             logger.info(f"Downloaded {len(df)} rows of Bank Nifty data")
             logger.info(f"Columns: {df.columns.tolist()}")
@@ -72,6 +104,12 @@ class DataLoader:
             DataFrame with synthetic option data
         """
         df = spot_data.copy()
+        
+        # Ensure we have all required columns
+        required_cols = ['close', 'high', 'low', 'volume']
+        for col in required_cols:
+            if col not in df.columns:
+                raise ValueError(f"Required column '{col}' not found in data")
         
         # Generate ATM strike prices (nearest 100)
         df['atm_strike'] = (df['close'] // 100) * 100
