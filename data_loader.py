@@ -49,43 +49,55 @@ class DataLoader:
             # Reset index to have Date as column
             df = df.reset_index()
             
-            # Flatten MultiIndex columns if they exist
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = ['_'.join(col).strip() for col in df.columns.values]
-            
-            # Convert column names to lowercase
-            df.columns = [str(col).lower().replace('^nsebank', '').strip('_') for col in df.columns]
-            
-            # Rename columns to standard format
-            column_mapping = {
-                'date': 'date',
-                'open': 'open',
-                'high': 'high',
-                'low': 'low',
-                'close': 'close',
-                'volume': 'volume'
-            }
-            
-            # Find correct column names
+            # Handle column names properly
+            new_columns = []
             for col in df.columns:
-                for key, value in column_mapping.items():
-                    if key in col.lower():
-                        df.rename(columns={col: value}, inplace=True)
-                        break
+                if isinstance(col, tuple):
+                    # If it's a tuple, take the first element
+                    col_name = str(col[0]).lower().strip()
+                else:
+                    col_name = str(col).lower().strip()
+                
+                # Remove any extra suffixes
+                if '^nsebank' in col_name:
+                    col_name = col_name.replace('^nsebank', '').strip('_')
+                
+                # Map to standard names
+                if 'date' in col_name:
+                    col_name = 'date'
+                elif 'open' in col_name:
+                    col_name = 'open'
+                elif 'high' in col_name:
+                    col_name = 'high'
+                elif 'low' in col_name:
+                    col_name = 'low'
+                elif 'close' in col_name:
+                    col_name = 'close'
+                elif 'volume' in col_name:
+                    col_name = 'volume'
+                
+                new_columns.append(col_name)
             
-            # Ensure we have the required columns
+            df.columns = new_columns
+            
+            # Ensure we have all required columns
             required_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
             for col in required_cols:
                 if col not in df.columns:
                     logger.warning(f"Column {col} not found in downloaded data")
-                    # Try to find alternative column names
+                    # Try to find alternative
                     for alt_col in df.columns:
                         if col in alt_col.lower():
                             df.rename(columns={alt_col: col}, inplace=True)
                             break
             
             logger.info(f"Downloaded {len(df)} rows of Bank Nifty data")
-            logger.info(f"Columns: {df.columns.tolist()}")
+            logger.info(f"Final columns: {df.columns.tolist()}")
+            
+            # Convert date column to datetime
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+            
             return df
             
         except Exception as e:
@@ -95,7 +107,6 @@ class DataLoader:
     def generate_synthetic_option_data(self, spot_data: pd.DataFrame) -> pd.DataFrame:
         """
         Generate synthetic option data for backtesting.
-        In production, this would be replaced with actual option data.
         
         Args:
             spot_data: DataFrame with spot price data
@@ -109,23 +120,20 @@ class DataLoader:
         required_cols = ['close', 'high', 'low', 'volume']
         for col in required_cols:
             if col not in df.columns:
-                raise ValueError(f"Required column '{col}' not found in data")
+                raise ValueError(f"Required column '{col}' not found in data. Available: {df.columns.tolist()}")
         
         # Generate ATM strike prices (nearest 100)
         df['atm_strike'] = (df['close'] // 100) * 100
         
         # Generate option prices with realistic characteristics
-        # CE prices (out-of-the-money to in-the-money based on strike)
         df['ce_price'] = np.maximum(df['close'] - df['atm_strike'], 0) + 20
-        
-        # PE prices
         df['pe_price'] = np.maximum(df['atm_strike'] - df['close'], 0) + 20
         
-        # Add some volatility and volume
+        # Add volume
         df['ce_volume'] = df['volume'] * np.random.uniform(0.01, 0.05, len(df))
         df['pe_volume'] = df['volume'] * np.random.uniform(0.01, 0.05, len(df))
         
-        # Option Greeks (simplified)
+        # Option Greeks
         df['ce_delta'] = np.random.uniform(0.3, 0.7, len(df))
         df['pe_delta'] = np.random.uniform(-0.7, -0.3, len(df))
         
@@ -143,35 +151,19 @@ class DataLoader:
         Returns:
             Tuple of (spot_data, option_data)
         """
-        # Create cache filename with safe characters
-        cache_file = os.path.join(self.data_dir, f"banknifty_{start_date}_{end_date}.parquet")
-        
-        if os.path.exists(cache_file):
-            logger.info(f"Loading cached data from {cache_file}")
-            df = pd.read_parquet(cache_file)
-            spot_data = df[['date', 'open', 'high', 'low', 'close', 'volume']].copy()
-            option_data = df[['date', 'atm_strike', 'ce_price', 'pe_price', 'ce_volume', 'pe_volume']].copy()
-            return spot_data, option_data
-        
-        # Download new data
+        # Download data
         spot_data = self.download_banknifty_data(start_date, end_date)
         
+        # Generate synthetic option data
         if use_synthetic:
             option_data = self.generate_synthetic_option_data(spot_data)
         else:
-            # In production, you would load actual option data here
             option_data = self.generate_synthetic_option_data(spot_data)
         
-        # Ensure date column exists for merging
+        # Ensure date column exists
         if 'date' not in spot_data.columns:
             spot_data['date'] = spot_data.index
         
-        # Cache the combined data
-        try:
-            combined = pd.concat([spot_data, option_data[['atm_strike', 'ce_price', 'pe_price', 'ce_volume', 'pe_volume']]], axis=1)
-            combined.to_parquet(cache_file)
-            logger.info(f"Cached data to {cache_file}")
-        except Exception as e:
-            logger.warning(f"Could not cache data: {e}")
+        logger.info(f"Data loaded successfully. Shape: {spot_data.shape}")
         
         return spot_data, option_data
