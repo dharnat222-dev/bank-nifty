@@ -1,12 +1,6 @@
-# config.py
 """
 Configuration module for the Bank Nifty ATM Option Backtest Engine.
-Contains all configurable parameters for the backtesting system.
 """
-
-import os
-from datetime import datetime
-from typing import Dict, Any, List
 
 class Config:
     """Configuration class containing all backtest parameters."""
@@ -20,8 +14,8 @@ class Config:
     END_DATE = "2026-12-31"
     
     # Option Configuration
-    OPTION_TYPE = "CE"  # CE or PE
-    CONTRACT_SIZE = 25  # Bank Nifty lot size
+    OPTION_TYPE = "CE"
+    CONTRACT_SIZE = 25
     
     # Indicator Parameters
     VWAP_PERIOD = 20
@@ -33,23 +27,21 @@ class Config:
     SUPERTREND_MULTIPLIER = 3.0
     
     # Entry Parameters
-    MIN_VOLUME_RATIO = 1.0  # Current volume > Previous volume
+    MIN_VOLUME_RATIO = 1.0
     
     # Risk Parameters
     RISK_REWARD_RATIO_1 = 2.0
     RISK_REWARD_RATIO_2 = 3.0
     
     # Position Sizing
-    MAX_POSITION_SIZE = 100  # Maximum quantity per trade
+    MAX_POSITION_SIZE = 100
     
     @classmethod
-    def get_date_range(cls) -> tuple:
-        """Get the backtest date range."""
+    def get_date_range(cls):
         return (cls.START_DATE, cls.END_DATE)
     
     @classmethod
-    def get_indicator_params(cls) -> Dict[str, Any]:
-        """Get indicator parameters."""
+    def get_indicator_params(cls):
         return {
             'vwap_period': cls.VWAP_PERIOD,
             'ema_fast': cls.EMA_FAST,
@@ -61,8 +53,7 @@ class Config:
         }
     
     @classmethod
-    def get_entry_params(cls) -> Dict[str, Any]:
-        """Get entry parameters."""
+    def get_entry_params(cls):
         return {
             'min_volume_ratio': cls.MIN_VOLUME_RATIO,
             'risk_reward_1': cls.RISK_REWARD_RATIO_1,
